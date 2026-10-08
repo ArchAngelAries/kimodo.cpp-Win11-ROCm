@@ -42,3 +42,10 @@ __pycache__/
 .pytest_cache/
 /output_motion/
 /.kimodo-manifests/
+
+# Windows ROCm fork: local weights, virtual environments, GUI output and run logs
+/weights/
+/venv/
+/.venv/
+/gui-output/
+/runs/
