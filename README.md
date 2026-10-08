@@ -1,4 +1,35 @@
-# kimodo.cpp
+# kimodo.cpp (Windows 11 + AMD ROCm fork)
+
+This fork makes **AMD GPU use available on Windows 11** through ROCm (the HIP backend of
+ggml). The upstream project runs on the CPU and on Vulkan, and its build instructions cover
+Linux. This fork adds a Windows build that runs the motion model and the text encoder on an
+AMD Radeon GPU, a local browser GUI with a double-click launcher, and Windows tools for
+benchmarks and checks.
+
+- **Tested:** Windows 11 Pro with an AMD Radeon RX 7900 XT (gfx1100, 20 GB VRAM) and the AMD
+  HIP SDK for Windows (ROCm 7.1). Other AMD GPUs, ROCm versions and Windows builds are untested.
+- **Not supported:** the original Go demo in `demo/`. This fork does not build, configure or
+  test it. If you absolutely want to run it, install Go yourself and set it up yourself,
+  following the upstream instructions. The Windows GUI in `gui/` replaces it.
+- **Future support is not guaranteed.** This is a community port and may fall behind upstream.
+
+Start with [docs/windows-rocm.md](docs/windows-rocm.md): requirements, build, weights, GUI,
+measurements and known issues.
+
+Quick start (Windows 11, from the repository root):
+
+1. Install the AMD HIP SDK for Windows (ROCm 7.1), Visual Studio with the C++ workload, CMake and Ninja.
+2. `powershell -ExecutionPolicy Bypass -File windows\build-rocm.ps1`
+3. `python -m pip install huggingface_hub`, then `python windows\download-weights.py`. This
+   downloads the SOMA RP v1.1 motion model and the Q8_0 text encoder. Read their licences first.
+4. Double-click `Kimodo-GUI.bat`.
+
+Model weights are not included. Their licences apply: the NVIDIA Open Model License (SOMA models)
+and the Meta Llama 3 Community License (text-encoder bundle).
+
+The rest of this README is the upstream project's documentation.
+
+---
 
 GGML/C++ implementation of NVIDIA's Kimodo text-to-motion model.
 
