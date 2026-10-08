@@ -1,6 +1,9 @@
+// Modified for the Windows ROCm fork: GPU backend selection, and a BF16 norm cast that
+// the HIP kernels need. See docs/windows-rocm.md.
 // Attention layout is independently implemented with llama.cpp
 // src/llama-graph.cpp at 78ec4c378031811671d1c76a067acbee4f4c56ce as a
 // reference. No llama.cpp source is copied.
+#include "gpu_backend.hpp"
 #include "llm_text_encoder.hpp"
 #include "llm_tokenizer.hpp"
 #include "profile.hpp"
@@ -9,7 +12,9 @@
 #include <ggml-alloc.h>
 #include <ggml-backend.h>
 #include <ggml-cpu.h>
+#if defined(KIMODO_HAVE_GGML_VULKAN)
 #include <ggml-vulkan.h>
+#endif
 #include <gguf.h>
 
 #include <algorithm>
@@ -36,11 +41,6 @@
 namespace kimodo::detail {
 namespace {
 constexpr int64_t hidden = 4096, heads = 32, kv_heads = 8, head_dim = 128;
-
-bool use_vulkan() {
-    const char *choice = std::getenv("KIMODO_BACKEND");
-    return !choice || std::string_view(choice) != "cpu";
-}
 
 int layer_chunk_size() {
     constexpr int fallback = 8;
@@ -270,9 +270,11 @@ ggml_tensor *norm(ggml_context *ctx, ggml_tensor *x, ggml_tensor *weight) {
     auto *normalized = ggml_rms_norm(ctx, x->type == GGML_TYPE_F32 ? x : ggml_cast(ctx, x, GGML_TYPE_F32), 1e-5F);
     if (x->type == GGML_TYPE_BF16) {
         normalized = ggml_cast(ctx, normalized, GGML_TYPE_BF16);
-        auto *repeated = ggml_repeat(ctx, weight, normalized);
-        return ggml_cast(ctx, ggml_mul(ctx, ggml_cast(ctx, normalized, GGML_TYPE_F32),
-            ggml_cast(ctx, repeated, GGML_TYPE_F32)), GGML_TYPE_BF16);
+        // Widen the BF16 weight before repeating it.  The cast is exact, and
+        // GPU broadcast kernels (CUDA/HIP) take only F32 or F16 operands.
+        auto *rounded = ggml_cast(ctx, normalized, GGML_TYPE_F32);
+        auto *repeated = ggml_repeat(ctx, ggml_cast(ctx, weight, GGML_TYPE_F32), rounded);
+        return ggml_cast(ctx, ggml_mul(ctx, rounded, repeated), GGML_TYPE_BF16);
     }
     return ggml_mul(ctx, normalized, ggml_repeat(ctx, ggml_cast(ctx, weight, GGML_TYPE_F32), normalized));
 }
@@ -465,9 +467,13 @@ std::expected<std::unique_ptr<llm_text_encoder>, std::string> llm_text_encoder::
     }
     auto result = std::unique_ptr<llm_text_encoder>(new llm_text_encoder);
     result->impl_ = std::make_unique<impl>();
+    if (gpu_backend_requested()) {
 #if defined(KIMODO_HAVE_GGML_VULKAN)
-    if (use_vulkan() && ggml_backend_vk_get_device_count()) result->impl_->backend = ggml_backend_vk_init(0);
+        if (ggml_backend_vk_get_device_count()) result->impl_->backend = ggml_backend_vk_init(0);
+#elif defined(KIMODO_HAVE_GGML_HIP)
+        result->impl_->backend = create_gpu_backend();
 #endif
+    }
     if (!result->impl_->backend) {
         result->impl_->backend = ggml_backend_cpu_init();
         if (!result->impl_->backend) return std::unexpected("cannot initialize text backend");

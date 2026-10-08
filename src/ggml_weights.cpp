@@ -1,5 +1,8 @@
+// Modified for the Windows ROCm fork: GPU backend selection goes through gpu_backend.hpp.
+// See docs/windows-rocm.md.
 #include "ggml_weights.hpp"
 #include "gguf.hpp"
+#include "gpu_backend.hpp"
 #include "motion_graph_cache.hpp"
 #include "profile.hpp"
 
@@ -71,21 +74,18 @@ std::expected<std::unique_ptr<ggml_motion_weights>, std::string> ggml_motion_wei
     gguf_init_params params{true, &result->context_};
     result->gguf_ = gguf_init_from_file(std::string(path).c_str(), params);
     if (!result->gguf_ || !result->context_) return std::unexpected("GGML could not load checked motion GGUF");
-    // Vulkan is the normal inference path.  Keep the CPU backend as a
-    // portability fallback, including for CI systems without a Vulkan ICD.
+    // The GPU is the normal inference path.  Keep the CPU backend as a
+    // portability fallback, including for CI systems without a GPU.
+    if (gpu_backend_requested()) {
 #if defined(KIMODO_HAVE_GGML_VULKAN)
-    // Retain a deterministic CPU escape hatch for parity triage.  It is not
-    // a performance mode; a captured fixture can establish whether a drift
-    // belongs to the GGML graph or specifically to Vulkan.
-    const bool force_cpu = [] {
-        const char *value = std::getenv("KIMODO_BACKEND");
-        return value && std::string_view(value) == "cpu";
-    }();
-    if (!force_cpu) {
+        // A captured fixture can establish whether drift belongs to the GGML
+        // graph or specifically to Vulkan (KIMODO_BACKEND=cpu is the reference).
         configure_vulkan_f32_parity();
         if (ggml_backend_vk_get_device_count() > 0) result->backend_ = ggml_backend_vk_init(0);
-    }
+#elif defined(KIMODO_HAVE_GGML_HIP)
+        result->backend_ = create_gpu_backend();
 #endif
+    }
     if (!result->backend_) {
         result->backend_ = ggml_backend_cpu_init();
         if (!result->backend_) return std::unexpected("GGML CPU backend initialization failed");
