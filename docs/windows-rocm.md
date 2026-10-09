@@ -82,7 +82,7 @@ Double-click `Kimodo-GUI.bat` in the repository root, or run it from a terminal.
 - Pick a motion model and a text encoder. Models that are not installed are shown as "not installed".
 - Write a prompt. Each segment is 60 to 150 frames. Add more segments for a sequence, up to 16. Each generation is 150 frames at 100 steps by default.
 - Click **Generate motion**. The first clip is slower while the models load.
-- Select an animation in the gallery to play it, and use **Download GLB** to save it.
+- A finished generation loads into the viewer automatically. Select any saved animation in the gallery to play it, and use **Download GLB** to save it.
 
 To use the CPU build instead of the GPU build:
 
@@ -190,6 +190,15 @@ The modified source files carry a notice at the top saying so.
 - The GLB download from the GUI contains only the joints, not a mesh.
 - Godot import is not tested.
 - ROCm prints about 90,000 GNU-extension warnings from ggml's common headers while building. They are harmless on this toolchain.
+
+## Troubleshooting
+
+- **"Failed to fetch", or the banner "Cannot reach the Kimodo server"**: the GUI server has stopped, usually because its console window was closed. Keep the console window open while you use the page. If it closed, double-click `Kimodo-GUI.bat` again and reload the page. The banner clears by itself once the server answers.
+- **"native program not found" in the console**: build it first with `windows\build-rocm.ps1` (ROCm) or `windows\build-cpu.ps1` (CPU), or pass the right program with `--generator`.
+- **"cannot listen on 127.0.0.1:8094"**: another Kimodo GUI is already running. Close its console window, then start again.
+- **A model or encoder shows "not installed"**: run `python windows\download-weights.py`. It skips files that are already present and verified. Add `--verify-only` to check the files without downloading anything.
+- **"Generation failed"**: the status line shows the error that the generator reported.
+- **A browser tab opens when the GUI starts**: the launcher opens the page once in your default browser each time it starts.
 
 ## Licences
 
