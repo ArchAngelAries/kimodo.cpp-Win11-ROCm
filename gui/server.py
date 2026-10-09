@@ -18,6 +18,7 @@ import struct
 import subprocess
 import sys
 import threading
+import traceback
 import webbrowser
 from array import array
 from datetime import datetime, timezone
@@ -463,6 +464,23 @@ class Handler(BaseHTTPRequestHandler):
         self._bytes(200, path.read_bytes(), content_type, headers)
 
     def do_GET(self) -> None:
+        self._guarded(self._route_get)
+
+    def do_POST(self) -> None:
+        self._guarded(self._route_post)
+
+    def _guarded(self, route) -> None:
+        # An unhandled error must not drop the connection: the browser would only say "Failed to fetch".
+        try:
+            route()
+        except Exception:
+            traceback.print_exc()
+            try:
+                self._error(500, 'The Kimodo server hit an error. Details are in the Kimodo GUI console window.')
+            except OSError:
+                pass
+
+    def _route_get(self) -> None:
         path = urlsplit(self.path).path
         no_store = {'Cache-Control': 'no-store'}
         if path == '/':
@@ -491,7 +509,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._error(404, 'not found')
 
-    def do_POST(self) -> None:
+    def _route_post(self) -> None:
         if urlsplit(self.path).path != '/api/generate':
             self._error(404, 'not found')
             return
