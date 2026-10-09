@@ -83,6 +83,7 @@ Double-click `Kimodo-GUI.bat` in the repository root, or run it from a terminal.
 - Write a prompt. Each segment is 60 to 150 frames. Add more segments for a sequence, up to 16. Each generation is 150 frames at 100 steps by default.
 - Click **Generate motion**. The first clip is slower while the models load.
 - A finished generation loads into the viewer automatically. Select any saved animation in the gallery to play it, and use **Download GLB** to save it.
+- Delete an animation with the **Delete** button under it, then click it again to confirm. This permanently removes its files from `gui-output\`.
 
 To use the CPU build instead of the GPU build:
 

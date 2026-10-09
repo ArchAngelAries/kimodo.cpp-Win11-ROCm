@@ -13,7 +13,9 @@ import argparse
 import json
 import os
 import queue
+import re
 import secrets
+import shutil
 import struct
 import subprocess
 import sys
@@ -254,6 +256,10 @@ class Session:
             self.process.kill()
 
 
+class MotionBusy(Exception):
+    """The animation is still queued or generating, so it cannot be deleted yet."""
+
+
 class Gallery:
     """Saved animations (one JSON file each) plus a single generation worker thread."""
 
@@ -308,6 +314,23 @@ class Gallery:
             self.items[item['id']] = item
             self.save(item)
         self.jobs.put(item['id'])
+
+    def delete(self, item_id: str) -> None:
+        """Remove a finished animation: its record first, so it stops listing, then its files."""
+        with self.lock:
+            item = self.items.get(item_id)
+            if item is None:
+                raise KeyError(item_id)
+            if item.get('status') in ('queued', 'running'):
+                raise MotionBusy('This animation is still generating. Delete it once it has finished.')
+            (self.output / f'{item_id}.json').unlink(missing_ok=True)
+            del self.items[item_id]
+        try:
+            shutil.rmtree(self.output / item_id)
+        except FileNotFoundError:
+            pass
+        except OSError as error:
+            print(f'[gui] {item_id} is no longer listed, but some of its files remain: {error}', flush=True)
 
     def _update(self, item_id: str, **changes) -> None:
         with self.lock:
@@ -469,6 +492,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         self._guarded(self._route_post)
 
+    def do_DELETE(self) -> None:
+        self._guarded(self._route_delete)
+
     def _guarded(self, route) -> None:
         # An unhandled error must not drop the connection: the browser would only say "Failed to fetch".
         try:
@@ -509,7 +535,41 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._error(404, 'not found')
 
+    def _local_request(self) -> bool:
+        # Only this computer's own page may change saved data. Browsers send Origin with these
+        # requests; the Host check also refuses a web page that points another name at 127.0.0.1.
+        host = self.headers.get('Host', '')
+        if host not in (f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}'):
+            return False
+        origin = self.headers.get('Origin')
+        return origin is None or origin == f'http://{host}'
+
+    def _route_delete(self) -> None:
+        if not self._local_request():
+            self._error(403, 'Only the Kimodo page on this computer can delete animations.')
+            return
+        path = urlsplit(self.path).path
+        prefix = '/api/animations/'
+        item_id = path[len(prefix):] if path.startswith(prefix) else ''
+        if not _item_id(item_id):
+            self._error(404, 'not found')
+            return
+        try:
+            self.gallery.delete(item_id)
+        except KeyError:
+            self._error(404, 'that animation no longer exists')
+        except MotionBusy as error:
+            self._error(409, str(error))
+        except OSError as error:
+            self._error(500, f'could not delete the animation: {error}')
+        else:
+            print(f'[gui] deleted animation {item_id}', flush=True)
+            self._json({'deleted': item_id})
+
     def _route_post(self) -> None:
+        if not self._local_request():
+            self._error(403, 'Only the Kimodo page on this computer can create animations.')
+            return
         if urlsplit(self.path).path != '/api/generate':
             self._error(404, 'not found')
             return
@@ -583,6 +643,10 @@ class Handler(BaseHTTPRequestHandler):
 def _safe(value: str) -> bool:
     return bool(value) and value not in ('.', '..') and all(
         ch.isascii() and (ch.isalnum() or ch in '-_.') for ch in value)
+
+
+def _item_id(value: str) -> bool:
+    return re.fullmatch(r'[0-9a-f]{16}', value) is not None
 
 
 def main() -> int:
